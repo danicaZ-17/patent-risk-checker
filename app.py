@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 
 st.set_page_config(page_title="商品专利风险筛查系统", page_icon="🛡️", layout="wide")
 
@@ -48,15 +49,15 @@ def search_patents(query, top_k=5):
             score = min(matched / len(chars) * 0.7 + 0.2, 0.85)
 
         results.append({
-            "id": p["id"],
-            "title": p["title"],
-            "abstract": p["abstract"],
-            "category": p["category"],
-            "similarity": round(score, 3),
-            "risk": "高风险" if score >= 0.7 else ("中风险" if score >= 0.4 else "低风险")
+            "专利号": p["id"],
+            "专利标题": p["title"],
+            "摘要": p["abstract"],
+            "品类": p["category"],
+            "相似度": round(score, 3),
+            "风险等级": "高风险" if score >= 0.7 else ("中风险" if score >= 0.4 else "低风险")
         })
 
-    results.sort(key=lambda x: x["similarity"], reverse=True)
+    results.sort(key=lambda x: x["相似度"], reverse=True)
     return results[:top_k]
 
 # ---------- 侧边栏 ----------
@@ -65,6 +66,17 @@ with st.sidebar:
     st.write(f"专利库数量：**{len(PATENTS)}** 条")
     st.write(f"覆盖品类：**{len(set(p['category'] for p in PATENTS))}** 个")
 
+    # 检索历史
+    if "history" in st.session_state and st.session_state.history:
+        st.markdown("---")
+        st.write("📋 **检索历史**")
+        for h in st.session_state.history[-5:]:
+            st.write(f"- {h}")
+
+# ---------- 初始化历史记录 ----------
+if "history" not in st.session_state:
+    st.session_state.history = []
+
 # ---------- 主界面 ----------
 query = st.text_input("请输入商品描述", placeholder="例如：蓝牙耳机、石墨烯发热护膝")
 
@@ -72,38 +84,32 @@ if st.button("🔍 开始筛查"):
     if not query or len(query.strip()) == 0:
         st.warning("⚠️ 请输入商品描述")
     else:
+        # 记录检索历史
+        if query not in st.session_state.history:
+            st.session_state.history.append(query)
+
         with st.spinner("正在检索..."):
             results = search_patents(query)
 
         if results:
             st.subheader(f"📊 检索结果（共找到 {len(results)} 条相关专利）")
 
-            # ===== 彩色标签云 =====
-            tag_text = " ".join([r["title"] + " " + r["abstract"] for r in results])
-            words = tag_text.lower().replace("，", " ").replace("、", " ").replace(".", "").split()
-            stopwords = {"一种", "具有", "包括", "通过", "进行", "及其", "方法", "系统", "装置", "用于", "以及", "所述", "本发明", "实用新型"}
-            word_freq = {}
-            for w in words:
-                if len(w) >= 2 and w not in stopwords:
-                    word_freq[w] = word_freq.get(w, 0) + 1
-            sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:20]
+            # 导出报告按钮
+            df = pd.DataFrame(results)
+            csv = df.to_csv(index=False, encoding='utf-8-sig')
+            st.download_button(
+                label="📥 导出检索报告 (CSV)",
+                data=csv,
+                file_name=f"专利检索报告_{query}.csv",
+                mime="text/csv",
+            )
 
-            if sorted_words:
-                colors = ["#FF6B6B", "#FF9F43", "#FECA57", "#48DBFB", "#0ABDE3", "#10AC84", "#EE5A24", "#5F27CD", "#01CBC6", "#FF6FB7", "#A29BFE", "#FD79A8"]
-                html = '<div style="display:flex;flex-wrap:wrap;gap:10px 12px;padding:15px 0;justify-content:center;">'
-                for i, (word, freq) in enumerate(sorted_words):
-                    size = 16 + freq * 5
-                    color = colors[i % len(colors)]
-                    html += f'<span style="font-size:{size}px;color:{color};font-weight:bold;background:#f0f2f6;padding:6px 18px;border-radius:25px;display:inline-block;box-shadow:0 2px 4px rgba(0,0,0,0.08);">{word}</span>'
-                html += '</div>'
-                st.markdown("#### 🏷️ 专利热词云图")
-                st.markdown(html, unsafe_allow_html=True)
-            # ===== 彩色标签云结束 =====
+            st.markdown("---")
 
             for i, r in enumerate(results):
-                with st.expander(f"#{i+1} {r['title']}  —  相似度：{r['similarity']*100:.1f}%  {r['risk']}"):
-                    st.write(f"**专利号：** {r['id']}")
-                    st.write(f"**摘要：** {r['abstract']}")
-                    st.write(f"**品类：** {r['category']}")
+                with st.expander(f"#{i+1} {r['专利标题']}  —  相似度：{r['相似度']*100:.1f}%  {r['风险等级']}"):
+                    st.write(f"**专利号：** {r['专利号']}")
+                    st.write(f"**摘要：** {r['摘要']}")
+                    st.write(f"**品类：** {r['品类']}")
         else:
             st.info("未找到匹配的专利，建议更换关键词尝试。")
