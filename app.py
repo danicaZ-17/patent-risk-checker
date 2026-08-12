@@ -30,24 +30,35 @@ def search_patents(query, top_k=5):
     if not query or len(query.strip()) == 0:
         return []
     
-    query_lower = query.lower().strip()
+    # 把查询拆成单个词
+    query_words = query.lower().strip().replace("，", " ").replace("、", " ").split()
+    # 过滤掉太短的词（如单个字符）
+    query_words = [w for w in query_words if len(w) >= 2]
+    
+    if not query_words:
+        return []
+    
     results = []
     
     for p in PATENTS:
         text = (p["title"] + " " + p["abstract"]).lower()
-        # 直接用包含关系匹配
-        if query_lower in text:
-            score = 0.85
-        else:
-            # 拆分成词分别匹配
-            words = query_lower.replace("，", " ").replace("、", " ").split()
-            match_count = 0
-            for w in words:
-                if len(w) >= 2 and w in text:
-                    match_count += 1
-            if match_count == 0:
-                continue
-            score = min(0.5 + match_count / len(words) * 0.4, 0.95)
+        
+        # 统计有多少个查询词出现在文本中
+        matched = 0
+        for w in query_words:
+            if w in text:
+                matched += 1
+        
+        # 如果没有任何词匹配，跳过
+        if matched == 0:
+            continue
+        
+        # 相似度 = 匹配词数 / 总词数
+        score = matched / len(query_words)
+        # 稍微提升一下，让分数好看一些
+        score = min(score * 0.85 + 0.15, 0.95)
+        # 确保至少有一个匹配时分数不低于0.3
+        score = max(score, 0.3)
         
         results.append({
             "id": p["id"],
