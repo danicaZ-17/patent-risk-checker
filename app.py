@@ -77,34 +77,30 @@ if st.button("🔍 开始筛查"):
         with st.spinner("正在检索..."):
             results = search_patents(query)
         
-        if results:
+                if results:
             st.subheader(f"📊 检索结果（共找到 {len(results)} 条相关专利）")
             
-            # ===== 词云图 =====
-            # 提取关键词文本
+            # ===== 彩色标签云 =====
             tag_text = " ".join([r["title"] + " " + r["abstract"] for r in results])
-            # 过滤停用词
-            stopwords = ["一种", "具有", "包括", "通过", "进行", "及其", "方法", "系统", "装置", "用于", "以及", "所述", "本发明", "实用新型"]
-            for sw in stopwords:
-                tag_text = tag_text.replace(sw, "")
+            words = tag_text.lower().replace("，", " ").replace("、", " ").replace(".", "").split()
+            stopwords = {"一种", "具有", "包括", "通过", "进行", "及其", "方法", "系统", "装置", "用于", "以及", "所述", "本发明", "实用新型"}
+            word_freq = {}
+            for w in words:
+                if len(w) >= 2 and w not in stopwords:
+                    word_freq[w] = word_freq.get(w, 0) + 1
+            sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:20]
             
-            if len(tag_text.strip()) > 0:
-                try:
-                    wordcloud = WordCloud(
-                        width=700,
-                        height=300,
-                        background_color='white',
-                        colormap='Reds',
-                        max_words=50
-                    ).generate(tag_text)
-                    
-                    fig, ax = plt.subplots(figsize=(10, 4))
-                    ax.imshow(wordcloud, interpolation='bilinear')
-                    ax.axis('off')
-                    st.pyplot(fig)
-                except Exception as e:
-                    st.caption("词云生成失败，请检查字体配置。")
-            # ===== 词云结束 =====
+            if sorted_words:
+                colors = ["#FF6B6B", "#FF9F43", "#FECA57", "#48DBFB", "#0ABDE3", "#10AC84", "#EE5A24", "#5F27CD", "#01CBC6", "#FF6FB7", "#A29BFE", "#FD79A8"]
+                html = '<div style="display:flex;flex-wrap:wrap;gap:10px 12px;padding:15px 0;justify-content:center;">'
+                for i, (word, freq) in enumerate(sorted_words):
+                    size = 16 + freq * 5
+                    color = colors[i % len(colors)]
+                    html += f'<span style="font-size:{size}px;color:{color};font-weight:bold;background:#f0f2f6;padding:6px 18px;border-radius:25px;display:inline-block;box-shadow:0 2px 4px rgba(0,0,0,0.08);">{word}</span>'
+                html += '</div>'
+                st.markdown("#### 🏷️ 专利热词云图")
+                st.markdown(html, unsafe_allow_html=True)
+            # ===== 彩色标签云结束 =====
             
             for i, r in enumerate(results):
                 with st.expander(f"#{i+1} {r['title']}  —  相似度：{r['similarity']*100:.1f}%  {r['risk']}"):
