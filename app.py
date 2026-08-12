@@ -1,4 +1,6 @@
 import streamlit as st
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="商品专利风险筛查系统", page_icon="🛡️", layout="wide")
 
@@ -35,11 +37,9 @@ def search_patents(query, top_k=5):
     for p in PATENTS:
         text = (p["title"] + " " + p["abstract"]).lower()
         
-        # 直接包含匹配
         if query_clean in text:
             score = 0.90
         else:
-            # 拆成单字匹配
             chars = list(query_clean)
             matched = 0
             for c in chars:
@@ -80,28 +80,32 @@ if st.button("🔍 开始筛查"):
         if results:
             st.subheader(f"📊 检索结果（共找到 {len(results)} 条相关专利）")
             
-            # ===== 专利热词云图 =====
+            # ===== 词云图 =====
+            # 提取关键词文本
             tag_text = " ".join([r["title"] + " " + r["abstract"] for r in results])
-            words = tag_text.lower().replace("，", " ").replace("、", " ").replace(".", "").split()
-            stopwords = {"一种", "具有", "包括", "通过", "进行", "及其", "方法", "系统", "装置", "用于", "以及", "所述"}
-            word_freq = {}
-            for w in words:
-                if len(w) >= 2 and w not in stopwords:
-                    word_freq[w] = word_freq.get(w, 0) + 1
-            sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:15]
+            # 过滤停用词
+            stopwords = ["一种", "具有", "包括", "通过", "进行", "及其", "方法", "系统", "装置", "用于", "以及", "所述", "本发明", "实用新型"]
+            for sw in stopwords:
+                tag_text = tag_text.replace(sw, "")
             
-            if sorted_words:
-                html_code = '<div style="display: flex; flex-wrap: wrap; gap: 8px 12px; padding: 12px 0;">'
-                for word, freq in sorted_words:
-                    size = 14 + min(freq * 4, 18)
-                    color_hue = (hash(word) % 30) * 12
-                    html_code += f'<span style="font-size:{size}px; color:hsl({color_hue}, 75%, 55%); font-weight:500;">{word}</span>'
-                html_code += '</div>'
-                st.markdown("#### 🏷️ 专利热词云图")
-                st.markdown(html_code, unsafe_allow_html=True)
-            # ===== 云图结束 =====
+            if len(tag_text.strip()) > 0:
+                try:
+                    wordcloud = WordCloud(
+                        width=700,
+                        height=300,
+                        background_color='white',
+                        colormap='Reds',
+                        max_words=50
+                    ).generate(tag_text)
+                    
+                    fig, ax = plt.subplots(figsize=(10, 4))
+                    ax.imshow(wordcloud, interpolation='bilinear')
+                    ax.axis('off')
+                    st.pyplot(fig)
+                except Exception as e:
+                    st.caption("词云生成失败，请检查字体配置。")
+            # ===== 词云结束 =====
             
-            # 显示检索结果列表
             for i, r in enumerate(results):
                 with st.expander(f"#{i+1} {r['title']}  —  相似度：{r['similarity']*100:.1f}%  {r['risk']}"):
                     st.write(f"**专利号：** {r['id']}")
