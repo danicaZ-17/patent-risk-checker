@@ -1,5 +1,4 @@
 import streamlit as st
-import random
 
 st.set_page_config(page_title="商品专利风险筛查系统", page_icon="🛡️", layout="wide")
 
@@ -25,36 +24,30 @@ PATENTS = [
     {"id": "CN015", "title": "桌面多功能收纳架", "abstract": "一种桌面多功能收纳架，可放置手机、文具、眼镜等物品", "category": "办公用品"},
 ]
 
-# ---------- 检索函数 ----------
+# ---------- 最简单直接的搜索 ----------
 def search_patents(query, top_k=5):
     if not query or len(query.strip()) == 0:
         return []
     
-    # 把查询拆成单个词
-    query_words = query.lower().strip().replace("，", " ").replace("、", " ").split()
-    # 过滤掉太短的词
-    query_words = [w for w in query_words if len(w) >= 2]
-    
-    if not query_words:
-        return []
-    
+    query_clean = query.lower().strip()
     results = []
     
     for p in PATENTS:
         text = (p["title"] + " " + p["abstract"]).lower()
         
-        # 统计有多少个查询词出现在文本中
-        matched = 0
-        for w in query_words:
-            if w in text:
-                matched += 1
-        
-        if matched == 0:
-            continue
-        
-        score = matched / len(query_words)
-        score = min(score * 0.85 + 0.15, 0.95)
-        score = max(score, 0.3)
+        # 方法1：直接包含
+        if query_clean in text:
+            score = 0.90
+        else:
+            # 方法2：拆成单字匹配
+            chars = list(query_clean)
+            matched = 0
+            for c in chars:
+                if c in text:
+                    matched += 1
+            if matched == 0:
+                continue
+            score = min(matched / len(chars) * 0.7 + 0.2, 0.85)
         
         results.append({
             "id": p["id"],
