@@ -27,22 +27,38 @@ PATENTS = [
 def search_patents(query, top_k=5):
     if not query:
         return []
+    
+    # 提取查询词
     query_words = set(query.lower().replace("，", " ").replace("、", " ").split())
+    
+    # 如果查询词太少，直接返回空
+    if not query_words:
+        return []
+    
     results = []
     for p in PATENTS:
+        # 合并标题和摘要，全部转小写
         text = (p["title"] + " " + p["abstract"]).lower()
-        match_count = sum(1 for w in query_words if w in text)
-        if match_count == 0:
-            continue
-        similarity = min(match_count / max(len(query_words), 1) * 0.9 + 0.05, 0.95)
-        results.append({
-            "id": p["id"],
-            "title": p["title"],
-            "abstract": p["abstract"],
-            "category": p["category"],
-            "similarity": round(similarity, 3),
-            "risk": "高风险" if similarity >= 0.7 else ("中风险" if similarity >= 0.4 else "低风险")
-        })
+        
+        # 统计匹配的词数（允许部分匹配，比如"蓝牙"匹配"蓝牙降噪"）
+        match_count = 0
+        for qw in query_words:
+            if qw in text:  # 只要查询词出现在文本中就算匹配
+                match_count += 1
+        
+        # 计算相似度：匹配词数 / 总查询词数
+        if match_count > 0:
+            similarity = min(match_count / len(query_words) * 0.85 + 0.1, 0.95)
+            results.append({
+                "id": p["id"],
+                "title": p["title"],
+                "abstract": p["abstract"],
+                "category": p["category"],
+                "similarity": round(similarity, 3),
+                "risk": "高风险" if similarity >= 0.7 else ("中风险" if similarity >= 0.4 else "低风险")
+            })
+    
+    # 按相似度从高到低排序
     results.sort(key=lambda x: x["similarity"], reverse=True)
     return results[:top_k]
 
