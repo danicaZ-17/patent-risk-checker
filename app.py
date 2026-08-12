@@ -1,6 +1,4 @@
 import streamlit as st
-from wordcloud import WordCloud
-import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="商品专利风险筛查系统", page_icon="🛡️", layout="wide")
 
@@ -30,13 +28,13 @@ PATENTS = [
 def search_patents(query, top_k=5):
     if not query or len(query.strip()) == 0:
         return []
-    
+
     query_clean = query.lower().strip()
     results = []
-    
+
     for p in PATENTS:
         text = (p["title"] + " " + p["abstract"]).lower()
-        
+
         if query_clean in text:
             score = 0.90
         else:
@@ -48,7 +46,7 @@ def search_patents(query, top_k=5):
             if matched == 0:
                 continue
             score = min(matched / len(chars) * 0.7 + 0.2, 0.85)
-        
+
         results.append({
             "id": p["id"],
             "title": p["title"],
@@ -57,7 +55,7 @@ def search_patents(query, top_k=5):
             "similarity": round(score, 3),
             "risk": "高风险" if score >= 0.7 else ("中风险" if score >= 0.4 else "低风险")
         })
-    
+
     results.sort(key=lambda x: x["similarity"], reverse=True)
     return results[:top_k]
 
@@ -76,10 +74,10 @@ if st.button("🔍 开始筛查"):
     else:
         with st.spinner("正在检索..."):
             results = search_patents(query)
-        
-                if results:
+
+        if results:
             st.subheader(f"📊 检索结果（共找到 {len(results)} 条相关专利）")
-            
+
             # ===== 彩色标签云 =====
             tag_text = " ".join([r["title"] + " " + r["abstract"] for r in results])
             words = tag_text.lower().replace("，", " ").replace("、", " ").replace(".", "").split()
@@ -89,7 +87,7 @@ if st.button("🔍 开始筛查"):
                 if len(w) >= 2 and w not in stopwords:
                     word_freq[w] = word_freq.get(w, 0) + 1
             sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:20]
-            
+
             if sorted_words:
                 colors = ["#FF6B6B", "#FF9F43", "#FECA57", "#48DBFB", "#0ABDE3", "#10AC84", "#EE5A24", "#5F27CD", "#01CBC6", "#FF6FB7", "#A29BFE", "#FD79A8"]
                 html = '<div style="display:flex;flex-wrap:wrap;gap:10px 12px;padding:15px 0;justify-content:center;">'
@@ -101,7 +99,7 @@ if st.button("🔍 开始筛查"):
                 st.markdown("#### 🏷️ 专利热词云图")
                 st.markdown(html, unsafe_allow_html=True)
             # ===== 彩色标签云结束 =====
-            
+
             for i, r in enumerate(results):
                 with st.expander(f"#{i+1} {r['title']}  —  相似度：{r['similarity']*100:.1f}%  {r['risk']}"):
                     st.write(f"**专利号：** {r['id']}")
