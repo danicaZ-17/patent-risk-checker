@@ -8,30 +8,33 @@ import time
 st.set_page_config(page_title="商品专利风险筛查系统", page_icon="🛡️", layout="wide")
 
 st.title("🛡️ 商品专利风险筛查系统")
-st.write("输入商品描述，系统将通过 DeepSeek 语义检索判断专利侵权风险")
+st.write("输入商品描述，系统将通过通义千问语义检索判断专利侵权风险")
 
-# ===== DeepSeek API 配置（从 st.secrets 读取） =====
-DEEPSEEK_API_KEY = st.secrets["DEEPSEEK_API_KEY"]
-DEEPSEEK_EMBED_URL = "https://api.deepseek.com/v1/embeddings"
+# ===== 通义千问 API 配置 =====
+DASHSCOPE_API_KEY = st.secrets["DASHSCOPE_API_KEY"]
+DASHSCOPE_BASE_URL = st.secrets["DASHSCOPE_BASE_URL"]
 
 def get_embedding(text):
-    """调用 DeepSeek Embedding API，将文本转换为向量"""
+    """调用通义千问 qwen3.7-text-embedding 模型，将文本转换为向量"""
     if not text or len(text.strip()) == 0:
         return None
     
     headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Authorization": f"Bearer {DASHSCOPE_API_KEY}",
         "Content-Type": "application/json"
     }
     
     payload = {
-        "model": "text-embedding-v1",
-        "input": [text]
+        "model": "qwen3.7-text-embedding",
+        "input": {
+            "texts": [text]
+        },
+        "dimensions": 1024
     }
     
     try:
         response = requests.post(
-            DEEPSEEK_EMBED_URL,
+            f"{DASHSCOPE_BASE_URL}/embeddings",
             headers=headers,
             json=payload,
             timeout=30
@@ -103,7 +106,7 @@ PATENTS = [
 
 # ---------- 语义检索函数 ----------
 def search_patents(query, top_k=5):
-    """基于DeepSeek Embedding的语义检索"""
+    """基于通义千问 Embedding 的语义检索"""
     if not query or len(query.strip()) == 0:
         return []
 
@@ -168,7 +171,7 @@ with st.sidebar:
     st.header("📊 系统信息")
     st.write(f"专利库数量：**{len(PATENTS)}** 条")
     st.write(f"覆盖品类：**{len(set(p['category'] for p in PATENTS))}** 个")
-    st.write("检索方式：**DeepSeek 语义检索**")
+    st.write("检索方式：**通义千问 qwen3.7-text-embedding**")
     st.caption("基于向量相似度的语义匹配")
 
     if "history" in st.session_state and st.session_state.history:
@@ -199,7 +202,7 @@ if st.button("🔍 开始筛查"):
             status_placeholder.info("🔍 步骤 1/3：正在解析商品描述，提取语义特征...")
             time.sleep(0.2)
             
-            status_placeholder.info("📚 步骤 2/3：正在通过 DeepSeek 进行语义检索...")
+            status_placeholder.info("📚 步骤 2/3：正在通过通义千问进行语义检索...")
             time.sleep(0.2)
             
             results = search_patents(query)
