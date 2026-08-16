@@ -25,7 +25,7 @@ def get_embedding(text):
     }
     
     payload = {
-        "model": "deepseek-embedding",
+        "model": "text-embedding-v1",
         "input": [text]
     }
     
