@@ -14,45 +14,50 @@ st.write("输入商品描述，系统将通过通义千问语义检索判断专�
 DASHSCOPE_API_KEY = st.secrets["DASHSCOPE_API_KEY"]
 DASHSCOPE_BASE_URL = st.secrets["DASHSCOPE_BASE_URL"]
 
-def get_embeddings_batch(texts):
-    """批量调用通义千问 Embedding API，一次调用返回多个文本的向量"""
+def get_embeddings_batch(texts, batch_size=20):
+    """批量调用通义千问 Embedding API，自动分批处理（每批不超过20条）"""
     if not texts or len(texts) == 0:
         return None
     
-    headers = {
-        "Authorization": f"Bearer {DASHSCOPE_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    all_embeddings = []
     
-    payload = {
-        "model": "qwen3.7-text-embedding",
-        "input": {
-            "texts": texts
-        },
-        "dimensions": 1024
-    }
-    
-    try:
-        response = requests.post(
-            f"{DASHSCOPE_BASE_URL}/embeddings",
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
+    # 分批处理
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i+batch_size]
         
-        if response.status_code == 200:
-            result = response.json()
-            embeddings = []
-            for item in result["data"]:
-                embeddings.append(np.array(item["embedding"], dtype=np.float32))
-            return embeddings
-        else:
-            st.error(f"API 调用失败（状态码 {response.status_code}）：{response.text[:200]}")
+        headers = {
+            "Authorization": f"Bearer {DASHSCOPE_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "qwen3.7-text-embedding",
+            "input": {
+                "texts": batch
+            },
+            "dimensions": 1024
+        }
+        
+        try:
+            response = requests.post(
+                f"{DASHSCOPE_BASE_URL}/embeddings",
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                for item in result["data"]:
+                    all_embeddings.append(np.array(item["embedding"], dtype=np.float32))
+            else:
+                st.error(f"API 调用失败（状态码 {response.status_code}）：{response.text[:200]}")
+                return None
+        except Exception as e:
+            st.error(f"API 调用异常：{str(e)}")
             return None
-    except Exception as e:
-        st.error(f"API 调用异常：{str(e)}")
-        return None
-
+    
+    return all_embeddings
 # ---------- 专利数据（50条，覆盖7个品类） ----------
 PATENTS = [
     # ===== 保温杯（8条） =====
