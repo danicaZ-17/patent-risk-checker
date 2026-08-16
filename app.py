@@ -28,7 +28,7 @@ def get_embedding(text):
         "model": "deepseek-embedding-v1"
     }
     try:
-        # 使用 json.dumps 确保中文正确编码
+        # 显式使用 UTF-8 编码发送数据
         response = requests.post(
             DEEPSEEK_EMBED_URL, 
             headers=headers, 
@@ -45,7 +45,6 @@ def get_embedding(text):
     except Exception as e:
         st.error(f"API 调用异常：{str(e)}")
         return None
-
 # ---------- 专利数据（50条，覆盖7个品类） ----------
 PATENTS = [
     {"id": "CN122460793A", "title": "一种保温杯", "abstract": "本发明公开了一种保温杯，包括可拆卸连接的杯体和杯盖，杯盖顶部凹设有第一容置空间，盖体可开合地盖设在第一容置空间的开口处，药盒容置在第一容置空间内。解决了老年用户在外出场景下药盒易遗忘的技术问题。", "category": "家居用品"},
