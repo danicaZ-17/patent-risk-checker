@@ -21,20 +21,26 @@ def get_embedding(text):
     """调用 DeepSeek Embedding API，将文本转换为向量"""
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json; charset=utf-8"
     }
     data = {
         "input": text,
         "model": "deepseek-embedding-v1"
     }
     try:
-        response = requests.post(DEEPSEEK_EMBED_URL, headers=headers, json=data, timeout=30)
+        # 使用 json.dumps 确保中文正确编码
+        response = requests.post(
+            DEEPSEEK_EMBED_URL, 
+            headers=headers, 
+            data=json.dumps(data, ensure_ascii=False).encode('utf-8'),
+            timeout=30
+        )
         if response.status_code == 200:
             result = response.json()
             embedding = result["data"][0]["embedding"]
             return np.array(embedding)
         else:
-            st.error(f"API 调用失败：{response.status_code}")
+            st.error(f"API 调用失败：{response.status_code} - {response.text}")
             return None
     except Exception as e:
         st.error(f"API 调用异常：{str(e)}")
