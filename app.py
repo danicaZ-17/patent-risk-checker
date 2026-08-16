@@ -10,41 +10,44 @@ st.set_page_config(page_title="商品专利风险筛查系统", page_icon="🛡�
 st.title("🛡️ 商品专利风险筛查系统")
 st.write("输入商品描述，系统将通过 DeepSeek 语义检索判断专利侵权风险")
 
-# ===== DeepSeek API 配置 =====
-# ⚠️ 在这里填入你新创建的 API Key
-DEEPSEEK_API_KEY = "请在这里填入你的DeepSeek API Key"
-
-# DeepSeek API 端点
+# ===== DeepSeek API 配置（从 st.secrets 读取） =====
+DEEPSEEK_API_KEY = st.secrets["DEEPSEEK_API_KEY"]
 DEEPSEEK_EMBED_URL = "https://api.deepseek.com/v1/embeddings"
 
 def get_embedding(text):
     """调用 DeepSeek Embedding API，将文本转换为向量"""
+    if not text or len(text.strip()) == 0:
+        return None
+    
     headers = {
         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json; charset=utf-8"
+        "Content-Type": "application/json"
     }
-    data = {
-        "input": text,
-        "model": "deepseek-embedding-v1"
+    
+    payload = {
+        "model": "deepseek-embedding",
+        "input": [text]
     }
+    
     try:
-        # 显式使用 UTF-8 编码发送数据
         response = requests.post(
-            DEEPSEEK_EMBED_URL, 
-            headers=headers, 
-            data=json.dumps(data, ensure_ascii=False).encode('utf-8'),
+            DEEPSEEK_EMBED_URL,
+            headers=headers,
+            json=payload,
             timeout=30
         )
+        
         if response.status_code == 200:
             result = response.json()
             embedding = result["data"][0]["embedding"]
-            return np.array(embedding)
+            return np.array(embedding, dtype=np.float32)
         else:
-            st.error(f"API 调用失败：{response.status_code} - {response.text}")
+            st.error(f"API 调用失败（状态码 {response.status_code}）：{response.text[:200]}")
             return None
     except Exception as e:
         st.error(f"API 调用异常：{str(e)}")
         return None
+
 # ---------- 专利数据（50条，覆盖7个品类） ----------
 PATENTS = [
     {"id": "CN122460793A", "title": "一种保温杯", "abstract": "本发明公开了一种保温杯，包括可拆卸连接的杯体和杯盖，杯盖顶部凹设有第一容置空间，盖体可开合地盖设在第一容置空间的开口处，药盒容置在第一容置空间内。解决了老年用户在外出场景下药盒易遗忘的技术问题。", "category": "家居用品"},
@@ -109,7 +112,6 @@ def search_patents(query, top_k=5):
         return []
 
     results = []
-
     for p in PATENTS:
         patent_vec = get_embedding(p["abstract"])
         if patent_vec is None:
@@ -150,7 +152,7 @@ def evaluate_dimensions(query, patent, score):
     cat_match = 0.5
     categories = ["家居用品", "数码配件", "车载配件", "手机配件", "个护健康", "新能源", "智能穿戴"]
     for cat in categories:
-        if cat in query or any(kw in query for kw in cat):
+        if cat in query:
             if patent.get("品类", "") == cat:
                 cat_match = 0.9
                 break
