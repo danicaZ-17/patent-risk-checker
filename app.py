@@ -41,7 +41,7 @@ st.markdown(
         margin-bottom: 0.2rem;
     }
 
-    p, label, .stMarkdown {
+    label, .stMarkdown p {
         color: var(--ink);
     }
 
@@ -87,26 +87,91 @@ st.markdown(
         font-weight: 600;
     }
 
-    .stButton > button[kind="primary"] {
-        background: var(--brand);
-        border: 1px solid var(--brand);
+    .stButton > button[kind="primary"],
+    [data-testid="stBaseButton-primary"] {
+        background: var(--brand) !important;
+        border: 1px solid var(--brand) !important;
         border-radius: 8px;
-        color: #ffffff;
+        color: #ffffff !important;
         font-weight: 600;
+        box-shadow: 0 1px 2px rgba(15, 118, 110, 0.18);
     }
 
-    .stButton > button[kind="primary"]:hover {
-        background: var(--brand-dark);
-        border-color: var(--brand-dark);
-        color: #ffffff;
+    .stButton > button[kind="primary"] *,
+    [data-testid="stBaseButton-primary"] *,
+    [data-testid="stBaseButton-primary"] p,
+    [data-testid="stBaseButton-primary"] span {
+        color: #ffffff !important;
+        opacity: 1 !important;
     }
 
-    .stDownloadButton > button,
-    .stLinkButton > a {
+    .stButton > button[kind="primary"]:hover,
+    [data-testid="stBaseButton-primary"]:hover {
+        background: var(--brand-dark) !important;
+        border-color: var(--brand-dark) !important;
+        color: #ffffff !important;
+    }
+
+    .stButton > button[kind="primary"]:hover p,
+    .stButton > button[kind="primary"]:hover span,
+    [data-testid="stBaseButton-primary"]:hover p,
+    [data-testid="stBaseButton-primary"]:hover span {
+        color: #ffffff !important;
+    }
+
+    .stButton > button[kind="primary"]:focus-visible,
+    [data-testid="stBaseButton-primary"]:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.2);
+    }
+
+    [data-testid="stDownloadButton"] button,
+    .stDownloadButton button {
+        background: #e7f4f1 !important;
+        border: 1px solid #85bdb3 !important;
+        border-radius: 8px;
+        color: var(--brand-dark) !important;
+        font-weight: 600;
+        box-shadow: 0 1px 2px rgba(15, 118, 110, 0.08);
+    }
+
+    [data-testid="stDownloadButton"] button *,
+    .stDownloadButton button * {
+        color: var(--brand-dark) !important;
+        opacity: 1 !important;
+    }
+
+    [data-testid="stDownloadButton"] button:hover,
+    .stDownloadButton button:hover {
+        background: #d7ece7 !important;
+        border-color: var(--brand) !important;
+    }
+
+    [data-testid="stLinkButton"] a,
+    .stLinkButton a {
         border: 1px solid var(--line);
         border-radius: 8px;
         background: var(--surface);
-        color: var(--brand-dark);
+        color: var(--brand-dark) !important;
+        font-weight: 600;
+    }
+
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        background: var(--surface);
+        border-color: var(--line) !important;
+        border-radius: 8px;
+    }
+
+    .stTextInput input {
+        background: var(--surface);
+        border-color: var(--line);
+        color: var(--ink);
+        border-radius: 8px;
+    }
+
+    .stTextInput input:focus {
+        border-color: var(--brand);
+        box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
     }
 
     [data-testid="stProgress"] > div > div > div {
@@ -405,21 +470,30 @@ if "history" not in st.session_state:
     st.session_state.history = []
 
 # ---------- 主界面 ----------
-st.subheader("商品信息")
-query = st.text_input(
-    "商品名称或描述",
-    placeholder="例如：带茶滤的保温杯",
-    max_chars=MAX_QUERY_CHARS,
-    help=f"建议填写商品品类、材质、结构或核心用途，最多 {MAX_QUERY_CHARS} 字。"
-).strip()
+with st.container(border=True):
+    st.subheader("商品信息")
+    query = st.text_input(
+        "商品名称或描述",
+        placeholder="例如：带茶滤的保温杯",
+        max_chars=MAX_QUERY_CHARS,
+        help=f"建议填写商品品类、材质、结构或核心用途，最多 {MAX_QUERY_CHARS} 字。"
+    ).strip()
 
-show_aux_metrics = st.checkbox(
-    "显示匹配详情",
-    value=False,
-    help="查看技术要素、功能要素和领域匹配等辅助信息。"
-)
+    option_col, action_col = st.columns([3, 2])
+    with option_col:
+        show_aux_metrics = st.checkbox(
+            "显示匹配详情",
+            value=False,
+            help="查看技术要素、功能要素和领域匹配等辅助信息。"
+        )
+    with action_col:
+        analyze_clicked = st.button(
+            "开始分析",
+            type="primary",
+            use_container_width=True
+        )
 
-if st.button("开始分析", type="primary", use_container_width=True):
+if analyze_clicked:
     if not query or len(query.strip()) == 0:
         st.warning("请输入商品描述")
     else:
@@ -478,12 +552,18 @@ if st.button("开始分析", type="primary", use_container_width=True):
             df = pd.DataFrame(results)
             df.insert(0, "查询文本", query)
             csv = df.to_csv(index=False, encoding="utf-8-sig")
-            st.download_button(
-                label="导出筛查结果",
-                data=csv,
-                file_name=f"商品专利筛查结果_{query}.csv",
-                mime="text/csv",
-            )
+
+            export_note, export_action = st.columns([3, 1.4])
+            with export_note:
+                st.caption("可将本次分析结果导出为 CSV，便于后续复核和归档。")
+            with export_action:
+                st.download_button(
+                    label="导出筛查结果",
+                    data=csv,
+                    file_name=f"商品专利筛查结果_{query}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
 
             st.divider()
 
