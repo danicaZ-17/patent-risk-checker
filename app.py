@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-import json
 import time
 
 st.set_page_config(page_title="商品相关专利筛查系统", page_icon="🛡️", layout="wide")
@@ -17,6 +16,8 @@ DASHSCOPE_BASE_URL = st.secrets["DASHSCOPE_BASE_URL"]
 # 检索策略：最多返回 5 条，低相关结果不再为了凑满条数而展示
 MAX_RESULTS = 5
 MIN_RELEVANCE_SCORE = 0.45
+MAX_QUERY_CHARS = 200
+QUERY_COOLDOWN_SECONDS = 3
 
 # 品类约束只使用明确的商品/场景词，避免把“石墨烯发热护膝”误判为新能源电池
 CATEGORY_KEYWORDS = {
@@ -28,6 +29,11 @@ CATEGORY_KEYWORDS = {
     "新能源": ["石墨烯电池", "电池", "充电", "新能源"],
     "智能穿戴": ["智能穿戴", "可穿戴", "智能手表", "手表", "手环"],
 }
+
+
+def patent_detail_url(patent_id):
+    """返回专利公开号对应的 Google Patents 页面。"""
+    return f"https://patents.google.com/patent/{patent_id}/zh"
 
 
 def infer_query_categories(query):
@@ -44,49 +50,70 @@ def infer_query_categories(query):
 
 
 def get_embeddings_batch(texts, batch_size=20):
-    """批量调用通义千问 Embedding API，自动分批处理（每批不超过20条）"""
-    if not texts or len(texts) == 0:
+    """批量调用通义千问 Embedding API，失败时重试一次。"""
+    if not texts:
         return None
-    
+
     all_embeddings = []
-    
-    # 分批处理
+
     for i in range(0, len(texts), batch_size):
-        batch = texts[i:i+batch_size]
-        
+        batch = texts[i:i + batch_size]
         headers = {
             "Authorization": f"Bearer {DASHSCOPE_API_KEY}",
             "Content-Type": "application/json"
         }
-        
         payload = {
             "model": "qwen3.7-text-embedding",
-            "input": {
-                "texts": batch
-            },
+            "input": {"texts": batch},
             "dimensions": 1024
         }
-        
-        try:
-            response = requests.post(
-                f"{DASHSCOPE_BASE_URL}/embeddings",
-                headers=headers,
-                json=payload,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                for item in result["data"]:
-                    all_embeddings.append(np.array(item["embedding"], dtype=np.float32))
-            else:
-                st.error(f"API 调用失败（状态码 {response.status_code}）：{response.text[:200]}")
+
+        batch_succeeded = False
+        for attempt in range(2):
+            try:
+                response = requests.post(
+                    f"{DASHSCOPE_BASE_URL}/embeddings",
+                    headers=headers,
+                    json=payload,
+                    timeout=(5, 30)
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    items = result.get("data", [])
+                    if len(items) != len(batch):
+                        st.error("接口返回的向量数量与请求文本数量不一致，请稍后重试。")
+                        return None
+
+                    for item in sorted(items, key=lambda x: x.get("index", 0)):
+                        all_embeddings.append(
+                            np.array(item["embedding"], dtype=np.float32)
+                        )
+                    batch_succeeded = True
+                    break
+
+                if attempt == 0 and response.status_code in (429, 500, 502, 503, 504):
+                    time.sleep(1)
+                    continue
+
+                st.error(
+                    f"Embedding 接口调用失败（HTTP {response.status_code}），请稍后重试。"
+                )
                 return None
-        except Exception as e:
-            st.error(f"API 调用异常：{str(e)}")
+
+            except (requests.RequestException, ValueError, KeyError, TypeError):
+                if attempt == 0:
+                    time.sleep(1)
+                    continue
+                st.error("Embedding 服务连接超时或返回内容异常，请稍后重试。")
+                return None
+
+        if not batch_succeeded:
             return None
-    
+
     return all_embeddings
+
+
 # ---------- 专利数据（50条，覆盖7个品类） ----------
 PATENTS = [
     # ===== 保温杯（8条） =====
@@ -148,29 +175,37 @@ PATENTS = [
 ]
 
 # ---------- 语义检索函数（批量调用优化版） ----------
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_patent_embeddings():
+    """缓存专利摘要向量，避免每次查询重复计算。"""
+    return get_embeddings_batch([p["abstract"] for p in PATENTS])
+
+
+
 def search_patents(query, top_k=MAX_RESULTS):
     """语义检索，并过滤低相关结果和明显不匹配的品类。"""
-    if not query or len(query.strip()) == 0:
+    if not query or not query.strip():
         return []
 
-    abstracts = [p["abstract"] for p in PATENTS]
-    all_texts = [query] + abstracts
+    with st.spinner("正在计算查询向量并检索相关专利..."):
+        patent_vectors = get_patent_embeddings()
+        query_vectors = get_embeddings_batch([query])
 
-    with st.spinner("正在调用通义千问进行语义向量化..."):
-        all_embeddings = get_embeddings_batch(all_texts)
-
-    if all_embeddings is None:
+    if patent_vectors is None or query_vectors is None or not query_vectors:
+        get_patent_embeddings.clear()
         return []
 
-    query_vec = all_embeddings[0]
-    patent_vectors = all_embeddings[1:]
+    if len(patent_vectors) != len(PATENTS):
+        st.error("专利向量数量与专利数据数量不一致，请重启应用后重试。")
+        return []
+
+    query_vec = query_vectors[0]
     query_categories = infer_query_categories(query)
-
-    results = []
     norm_q = np.linalg.norm(query_vec)
     if norm_q == 0:
         return []
 
+    results = []
     for i, p in enumerate(PATENTS):
         patent_vec = patent_vectors[i]
         norm_p = np.linalg.norm(patent_vec)
@@ -179,8 +214,6 @@ def search_patents(query, top_k=MAX_RESULTS):
             similarity = float(np.dot(query_vec, patent_vec) / (norm_q * norm_p))
 
         score = round(similarity, 3)
-
-        # 核心修复：不为凑满 Top-5 加入低相关或明显不匹配品类的结果
         if score < MIN_RELEVANCE_SCORE:
             continue
         if query_categories and p["category"] not in query_categories:
@@ -192,14 +225,14 @@ def search_patents(query, top_k=MAX_RESULTS):
             "摘要": p["abstract"],
             "品类": p["category"],
             "相似度": score,
-            "风险等级": "高风险" if score >= 0.7 else "中风险"
+            "相关性等级": "高相关" if score >= 0.7 else "中相关"
         })
 
     results.sort(key=lambda x: x["相似度"], reverse=True)
     return results[:min(top_k, MAX_RESULTS)]
 
 # ---------- 多维度评估函数 ----------
-def evaluate_dimensions(query, patent, score):
+def evaluate_dimensions(query, patent):
     """生成多维度评分"""
     text = (patent.get("专利标题", "") + " " + patent.get("摘要", "")).lower()
     
@@ -209,13 +242,10 @@ def evaluate_dimensions(query, patent, score):
     func_keywords = ["控制", "检测", "监测", "连接", "传输", "处理", "调节", "保护", "充电", "散热"]
     func_match = sum(1 for kw in func_keywords if kw in text) / len(func_keywords)
     
+    query_categories = infer_query_categories(query)
     cat_match = 0.5
-    categories = ["家居用品", "数码配件", "车载配件", "手机配件", "个护健康", "新能源", "智能穿戴"]
-    for cat in categories:
-        if cat in query:
-            if patent.get("品类", "") == cat:
-                cat_match = 0.9
-                break
+    if query_categories:
+        cat_match = 0.9 if patent.get("品类", "") in query_categories else 0.2
     
     return {
         "整体技术匹配度": round(min(tech_match * 0.7 + 0.2, 0.95), 3),
@@ -243,12 +273,31 @@ if "history" not in st.session_state:
     st.session_state.history = []
 
 # ---------- 主界面 ----------
-query = st.text_input("请输入商品描述", placeholder="例如：蓝牙耳机、石墨烯发热护膝")
+query = st.text_input(
+    "请输入商品描述",
+    placeholder="例如：蓝牙耳机、石墨烯发热护膝",
+    max_chars=MAX_QUERY_CHARS,
+    help=f"最多输入 {MAX_QUERY_CHARS} 个字符。系统只返回达到相关性阈值的候选专利。"
+).strip()
+
+show_aux_metrics = st.checkbox(
+    "显示辅助指标（仅供参考）",
+    value=False,
+    help="辅助指标仅反映关键词和品类文字特征，不参与相关性等级计算。"
+)
 
 if st.button("🔍 开始筛查"):
     if not query or len(query.strip()) == 0:
         st.warning("⚠️ 请输入商品描述")
     else:
+        now = time.time()
+        elapsed = now - st.session_state.get("last_query_time", 0)
+        if elapsed < QUERY_COOLDOWN_SECONDS:
+            wait_seconds = max(1, int(QUERY_COOLDOWN_SECONDS - elapsed + 0.999))
+            st.warning(f"查询过于频繁，请等待 {wait_seconds} 秒后重试。")
+            st.stop()
+        st.session_state.last_query_time = now
+
         if query not in st.session_state.history:
             st.session_state.history.append(query)
 
@@ -257,7 +306,7 @@ if st.button("🔍 开始筛查"):
             st.markdown("### ⚙️ 处理进度")
             status_placeholder = st.empty()
             
-            status_placeholder.info("🔍 步骤 1/3：正在解析商品描述，提取语义特征...")
+            status_placeholder.info("🔍 步骤 1/3：正在检查商品描述...")
             time.sleep(0.2)
             
             status_placeholder.info("📚 步骤 2/3：正在通过通义千问进行语义检索...")
@@ -265,9 +314,9 @@ if st.button("🔍 开始筛查"):
             
             results = search_patents(query)
             
-            status_placeholder.info("📊 步骤 3/3：正在执行多维度风险分析...")
+            status_placeholder.info("📊 步骤 3/3：正在整理相关性等级和辅助指标...")
             time.sleep(0.2)
-            status_placeholder.success("✅ 分析完成！")
+            status_placeholder.success("✅ 检索完成！")
 
         if results:
             st.subheader(f"📊 检索结果（共找到 {len(results)} 条达到阈值的结果）")
@@ -276,7 +325,7 @@ if st.button("🔍 开始筛查"):
                 st.caption("已启用品类约束：" + "、".join(sorted(query_categories)))
             if len(results) < MAX_RESULTS:
                 st.info(f"仅找到 {len(results)} 条达到阈值的相关专利，未为了凑满 Top-5 加入低相关结果。")
-            st.caption("风险等级由相似度经验阈值给出，仅表示文本相关性预警，不构成侵权结论。")
+            st.caption("相关性等级由相似度经验阈值给出，仅表示文本相关性预警，不构成侵权结论。")
 
             df = pd.DataFrame(results)
             df.insert(0, "查询文本", query)
@@ -291,21 +340,27 @@ if st.button("🔍 开始筛查"):
             st.markdown("---")
 
             for i, r in enumerate(results):
-                dimensions = evaluate_dimensions(query, r, r["相似度"])
+                dimensions = evaluate_dimensions(query, r)
                 
-                with st.expander(f"#{i+1} {r['专利标题']}  —  相关性预警：{r['风险等级']}"):
+                with st.expander(f"#{i+1} {r['专利标题']}  —  相关性预警：{r['相关性等级']}"):
                     col1, col2 = st.columns([3, 2])
                     
                     with col1:
                         st.write(f"**专利号：** {r['专利号']}")
+                        st.markdown(f"[查看专利原文]({patent_detail_url(r['专利号'])})")
                         st.write(f"**摘要：** {r['摘要']}")
                         st.write(f"**品类：** {r['品类']}")
-                    
+
                     with col2:
-                        st.markdown("**📐 辅助指标**")
-                        st.progress(dimensions["整体技术匹配度"], text=f"整体技术匹配度：{dimensions['整体技术匹配度']*100:.0f}%")
-                        st.progress(dimensions["功能特征一致性"], text=f"功能特征一致性：{dimensions['功能特征一致性']*100:.0f}%")
-                        st.progress(dimensions["领域适用性"], text=f"领域适用性：{dimensions['领域适用性']*100:.0f}%")
-                        st.caption(f"**综合相似度：** {r['相似度']*100:.1f}% ｜ **预警标签：** {r['风险等级']}")
+                        st.markdown("**📐 检索依据**")
+                        st.write(f"**语义相似度：** {r['相似度']*100:.1f}%")
+                        st.write(f"**相关性等级：** {r['相关性等级']}")
+                        if show_aux_metrics:
+                            st.markdown("**辅助指标（仅供参考）**")
+                            st.progress(dimensions["整体技术匹配度"], text=f"整体技术匹配度：{dimensions['整体技术匹配度']*100:.0f}%")
+                            st.progress(dimensions["功能特征一致性"], text=f"功能特征一致性：{dimensions['功能特征一致性']*100:.0f}%")
+                            st.progress(dimensions["领域适用性"], text=f"领域适用性：{dimensions['领域适用性']*100:.0f}%")
+                        else:
+                            st.caption("辅助指标已隐藏；它们仅反映文本关键词和品类，不参与相关性等级计算。")
         else:
-            st.info("未找到匹配的专利，建议更换关键词尝试。")
+            st.info("未找到达到相关性阈值的同品类专利。可以适当增加材质、结构或用途描述后重试。")
