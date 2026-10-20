@@ -5,14 +5,43 @@ import requests
 import json
 import time
 
-st.set_page_config(page_title="商品专利风险筛查系统", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="商品相关专利筛查系统", page_icon="🛡️", layout="wide")
 
-st.title("🛡️ 商品专利风险筛查系统")
-st.write("输入商品描述，系统将通过通义千问语义检索判断专利侵权风险")
+st.title("🛡️ 商品相关专利筛查系统")
+st.write("输入商品描述，系统将检索相关专利线索；结果仅供人工复核，不直接构成侵权判断。")
 
 # ===== 通义千问 API 配置 =====
 DASHSCOPE_API_KEY = st.secrets["DASHSCOPE_API_KEY"]
 DASHSCOPE_BASE_URL = st.secrets["DASHSCOPE_BASE_URL"]
+
+# 检索策略：最多返回 5 条，低相关结果不再为了凑满条数而展示
+MAX_RESULTS = 5
+MIN_RELEVANCE_SCORE = 0.45
+
+# 品类约束只使用明确的商品/场景词，避免把“石墨烯发热护膝”误判为新能源电池
+CATEGORY_KEYWORDS = {
+    "家居用品": ["保温杯", "水杯", "杯子", "饮水", "药盒", "杯盖"],
+    "数码配件": ["蓝牙耳机", "耳机", "耳塞", "充电仓"],
+    "车载配件": ["车载支架", "车载", "吸盘", "仪表台"],
+    "手机配件": ["手机壳", "保护壳", "镜头盖", "手机背板"],
+    "个护健康": ["理疗仪", "理疗", "艾灸", "护膝", "按摩仪", "美容仪"],
+    "新能源": ["石墨烯电池", "电池", "充电", "新能源"],
+    "智能穿戴": ["智能穿戴", "可穿戴", "智能手表", "手表", "手环"],
+}
+
+
+def infer_query_categories(query):
+    """根据明确的商品词推断候选品类；未命中时返回空集合。"""
+    text = (query or "").strip().lower()
+    if not text:
+        return set()
+
+    matched = set()
+    for category, keywords in CATEGORY_KEYWORDS.items():
+        if any(keyword.lower() in text for keyword in keywords):
+            matched.add(category)
+    return matched
+
 
 def get_embeddings_batch(texts, batch_size=20):
     """批量调用通义千问 Embedding API，自动分批处理（每批不超过20条）"""
@@ -119,53 +148,55 @@ PATENTS = [
 ]
 
 # ---------- 语义检索函数（批量调用优化版） ----------
-def search_patents(query, top_k=5):
-    """基于通义千问 Embedding 的语义检索（批量调用优化）"""
+def search_patents(query, top_k=MAX_RESULTS):
+    """语义检索，并过滤低相关结果和明显不匹配的品类。"""
     if not query or len(query.strip()) == 0:
         return []
 
-    # 1. 收集所有需要向量化的文本：查询 + 所有专利摘要
     abstracts = [p["abstract"] for p in PATENTS]
     all_texts = [query] + abstracts
-    
-    # 2. 批量调用 API（只需1-2次网络请求）
+
     with st.spinner("正在调用通义千问进行语义向量化..."):
         all_embeddings = get_embeddings_batch(all_texts)
-    
+
     if all_embeddings is None:
         return []
-    
-    # 3. 分离查询向量和专利向量
+
     query_vec = all_embeddings[0]
     patent_vectors = all_embeddings[1:]
-    
-    # 4. 计算相似度
+    query_categories = infer_query_categories(query)
+
     results = []
     norm_q = np.linalg.norm(query_vec)
     if norm_q == 0:
         return []
-    
+
     for i, p in enumerate(PATENTS):
         patent_vec = patent_vectors[i]
         norm_p = np.linalg.norm(patent_vec)
-        if norm_p == 0:
-            similarity = 0
-        else:
+        similarity = 0.0
+        if norm_p != 0:
             similarity = float(np.dot(query_vec, patent_vec) / (norm_q * norm_p))
-        
+
         score = round(similarity, 3)
-        
+
+        # 核心修复：不为凑满 Top-5 加入低相关或明显不匹配品类的结果
+        if score < MIN_RELEVANCE_SCORE:
+            continue
+        if query_categories and p["category"] not in query_categories:
+            continue
+
         results.append({
             "专利号": p["id"],
             "专利标题": p["title"],
             "摘要": p["abstract"],
             "品类": p["category"],
             "相似度": score,
-            "风险等级": "高风险" if score >= 0.7 else ("中风险" if score >= 0.4 else "低风险")
+            "风险等级": "高风险" if score >= 0.7 else "中风险"
         })
-    
+
     results.sort(key=lambda x: x["相似度"], reverse=True)
-    return results[:top_k]
+    return results[:min(top_k, MAX_RESULTS)]
 
 # ---------- 多维度评估函数 ----------
 def evaluate_dimensions(query, patent, score):
@@ -199,6 +230,7 @@ with st.sidebar:
     st.write(f"覆盖品类：**{len(set(p['category'] for p in PATENTS))}** 个")
     st.write("检索方式：**通义千问 qwen3.7-text-embedding**")
     st.caption("基于向量相似度的语义匹配（批量调用优化）")
+    st.caption(f"结果策略：最多 {MAX_RESULTS} 条；相似度低于 {MIN_RELEVANCE_SCORE:.2f} 的候选不展示")
 
     if "history" in st.session_state and st.session_state.history:
         st.markdown("---")
@@ -238,9 +270,16 @@ if st.button("🔍 开始筛查"):
             status_placeholder.success("✅ 分析完成！")
 
         if results:
-            st.subheader(f"📊 检索结果（共找到 {len(results)} 条相关专利）")
+            st.subheader(f"📊 检索结果（共找到 {len(results)} 条达到阈值的结果）")
+            query_categories = infer_query_categories(query)
+            if query_categories:
+                st.caption("已启用品类约束：" + "、".join(sorted(query_categories)))
+            if len(results) < MAX_RESULTS:
+                st.info(f"仅找到 {len(results)} 条达到阈值的相关专利，未为了凑满 Top-5 加入低相关结果。")
+            st.caption("风险等级由相似度经验阈值给出，仅表示文本相关性预警，不构成侵权结论。")
 
             df = pd.DataFrame(results)
+            df.insert(0, "查询文本", query)
             csv = df.to_csv(index=False, encoding='utf-8-sig')
             st.download_button(
                 label="📥 导出检索报告 (CSV)",
@@ -254,7 +293,7 @@ if st.button("🔍 开始筛查"):
             for i, r in enumerate(results):
                 dimensions = evaluate_dimensions(query, r, r["相似度"])
                 
-                with st.expander(f"#{i+1} {r['专利标题']}  —  综合风险：{r['风险等级']}"):
+                with st.expander(f"#{i+1} {r['专利标题']}  —  相关性预警：{r['风险等级']}"):
                     col1, col2 = st.columns([3, 2])
                     
                     with col1:
@@ -263,10 +302,10 @@ if st.button("🔍 开始筛查"):
                         st.write(f"**品类：** {r['品类']}")
                     
                     with col2:
-                        st.markdown("**📐 多维度评估**")
+                        st.markdown("**📐 辅助指标**")
                         st.progress(dimensions["整体技术匹配度"], text=f"整体技术匹配度：{dimensions['整体技术匹配度']*100:.0f}%")
                         st.progress(dimensions["功能特征一致性"], text=f"功能特征一致性：{dimensions['功能特征一致性']*100:.0f}%")
                         st.progress(dimensions["领域适用性"], text=f"领域适用性：{dimensions['领域适用性']*100:.0f}%")
-                        st.caption(f"**综合相似度：** {r['相似度']*100:.1f}% ｜ **风险等级：** {r['风险等级']}")
+                        st.caption(f"**综合相似度：** {r['相似度']*100:.1f}% ｜ **预警标签：** {r['风险等级']}")
         else:
             st.info("未找到匹配的专利，建议更换关键词尝试。")
