@@ -6,6 +6,137 @@ import time
 
 st.set_page_config(page_title="商品专利风险初筛", page_icon="🛡️", layout="wide")
 
+st.markdown(
+    """
+    <style>
+    :root {
+        --brand: #0f766e;
+        --brand-dark: #0b5f59;
+        --ink: #17232d;
+        --muted: #66737d;
+        --line: #dfe7e9;
+        --surface: #ffffff;
+        --canvas: #f4f7f7;
+    }
+
+    .stApp {
+        background: var(--canvas);
+        color: var(--ink);
+    }
+
+    .block-container {
+        max-width: 1180px;
+        padding-top: 2.4rem;
+        padding-bottom: 3rem;
+    }
+
+    h1, h2, h3, h4 {
+        color: var(--ink);
+        letter-spacing: 0;
+    }
+
+    h1 {
+        font-size: 2.15rem;
+        font-weight: 650;
+        margin-bottom: 0.2rem;
+    }
+
+    p, label, .stMarkdown {
+        color: var(--ink);
+    }
+
+    [data-testid="stCaptionContainer"] {
+        color: var(--muted);
+    }
+
+    [data-testid="stSidebar"] {
+        background: var(--surface);
+        border-right: 1px solid var(--line);
+    }
+
+    [data-testid="stSidebar"] .stMetric {
+        background: #f8fafa;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.65rem 0.8rem;
+    }
+
+    [data-testid="stMetric"] {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.8rem 1rem;
+    }
+
+    [data-testid="stMetricLabel"] {
+        color: var(--muted);
+    }
+
+    [data-testid="stMetricValue"] {
+        color: var(--ink);
+        font-size: 1.45rem;
+    }
+
+    [data-testid="stExpander"] {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+    }
+
+    [data-testid="stExpander"] summary {
+        font-weight: 600;
+    }
+
+    .stButton > button[kind="primary"] {
+        background: var(--brand);
+        border: 1px solid var(--brand);
+        border-radius: 8px;
+        color: #ffffff;
+        font-weight: 600;
+    }
+
+    .stButton > button[kind="primary"]:hover {
+        background: var(--brand-dark);
+        border-color: var(--brand-dark);
+        color: #ffffff;
+    }
+
+    .stDownloadButton > button,
+    .stLinkButton > a {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--brand-dark);
+    }
+
+    [data-testid="stProgress"] > div > div > div {
+        background-color: var(--brand) !important;
+    }
+
+    [data-testid="stAlert"] {
+        border-radius: 8px;
+    }
+
+    a {
+        color: var(--brand-dark);
+    }
+
+    @media (max-width: 760px) {
+        .block-container {
+            padding-top: 1.4rem;
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+
+        h1 {
+            font-size: 1.75rem;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.title("商品专利风险初筛")
 st.caption("快速识别商品描述中的相关专利线索，辅助业务团队开展风险复核。")
 
