@@ -228,8 +228,8 @@ CATEGORY_KEYWORDS = {
 
 
 def patent_detail_url(patent_id):
-    """返回专利公开号对应的 Google Patents 页面。"""
-    return f"https://patents.google.com/patent/{patent_id}/zh"
+    """返回国家知识产权局专利检索平台入口。"""
+    return "https://pss-system.cponline.cnipa.gov.cn/"
 
 
 def infer_query_categories(query):
@@ -578,7 +578,11 @@ if analyze_clicked:
                     with col1:
                         st.caption(f"专利号 {r['专利号']} · {r['品类']}")
                         st.markdown(f"**摘要**\n\n{r['摘要']}")
-                        st.link_button("查看专利原文", patent_detail_url(r["专利号"]))
+                        st.link_button(
+                            "查看专利原文",
+                            patent_detail_url(r["专利号"]),
+                            help="将打开国家知识产权局专利检索平台。复制上方专利号后即可查询。"
+                        )
 
                     with col2:
                         st.markdown("**匹配表现**")
